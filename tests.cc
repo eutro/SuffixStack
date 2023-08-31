@@ -228,7 +228,9 @@ template <typename Stack, typename... PrefixArgs> struct tester {
     assert(stk.has_suffix(nineteen));
   }
 
-  void randomised_with(unsigned long seed, unsigned long op_count, PrefixArgs &...args) {
+  void randomised_with(
+      unsigned long seed, unsigned long op_count, PrefixArgs &...args
+  ) {
     std::mt19937 rng(seed);
     auto rand_int = [&](unsigned i) {
       return std::uniform_int_distribution<unsigned>(0, i)(rng);

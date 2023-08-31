@@ -347,7 +347,9 @@ struct tree_stack : suffix_stack<indexed_string_over<T>, T>, tree_stack_base {
   // O(log(size()))
   void pop(size_t count) override { tree_stack_base::pop(count); }
   // O(log(size()))
-  const T &back() const override { return find_in_pointer<T>(tree_stack_base::back()); }
+  const T &back() const override {
+    return find_in_pointer<T>(tree_stack_base::back());
+  }
 
   // O(1)
   size_t size() const override { return tree_stack_base::size(); }
