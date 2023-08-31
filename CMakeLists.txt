@@ -1,18 +1,18 @@
 cmake_minimum_required(VERSION 3.0...3.27)
 project(
-  SuffixTree
+  "Suffix Stack"
   VERSION 0.1.0
   LANGUAGES CXX
 )
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-add_library(suffix_tree sufftree.cc sufftree.hpp)
+add_library(suffix_stack suffstack.cc suffstack.hpp)
 
 add_executable(tests tests.cc)
-target_link_libraries(tests suffix_tree)
+target_link_libraries(tests suffix_stack)
 
-set_target_properties(suffix_tree tests PROPERTIES
+set_target_properties(suffix_stack tests PROPERTIES
   CXX_STANDARD 20
   COMPILE_WARNING_AS_ERROR ON
 )
@@ -27,5 +27,5 @@ function(add_cxx_args target)
   endif()
 endfunction()
 
-add_cxx_args(suffix_tree)
+add_cxx_args(suffix_stack)
 add_cxx_args(tests)

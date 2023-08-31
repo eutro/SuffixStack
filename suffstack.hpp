@@ -9,7 +9,41 @@
 #include <unordered_set>
 #include <vector>
 
-namespace sufftree {
+/**
+ * The suffix stack is a stack data structure based on interned full
+ * binary trees.
+ *
+ * The binary trees have O(1) equality comparison, and data is stored
+ * only in the leaves. As such, each node contains exactly 2^N leaves
+ * for some N. To achieve O(1) equality comparison, all binary trees
+ * are interned, that is, each unique binary tree exists only once in
+ * a `node_arena`, and is retrieved or created in a hash table.
+ *
+ * The suffix stack itself is a list of such binary trees, at most one
+ * of each size. That is, the stack has one tree for every bit of the
+ * base-2 representation of its size.
+ *
+ * Logarithmic time `has_suffix` and `truncate` are implemented
+ * analogously to subtraction-by-borrowing, the smallest trees of the
+ * suffix stack (anal. the least significant bits of its size) are
+ * compared/removed, and once these are exhausted, the next smallest
+ * tree is split (anal. the bit is borrowed from) and compared to the
+ * rest of the trees of the string. Strings that will be checked need
+ * to be indexed ahead of time for this, so that every possible split
+ * of the string into these two phases can be accessed rapidly.
+ *
+ * Logarithmic time `append` is then implemented as the reverse, the
+ * decomposed tree in the truncation (anal. the bit that would be
+ * borrowed for the subtraction) is combined with the trees from the
+ * string, and those trees (anal. bits) that don't need combination
+ * are copied directly.
+ *
+ * All non-trivial operations (see below) on the stack end up being
+ * logarithmic time in the size of the stack and, where present, the
+ * string. Indexing strings for `append` and `truncate` is quadratic
+ * time and space.
+ */
+namespace suffstack {
 
 /** abstract interface for a stack as we need it */
 template <typename StringType, typename ValueType> struct suffix_stack {
@@ -31,12 +65,12 @@ template <typename T> struct naive_stack : suffix_stack<std::vector<T>, T> {
   using string = std::vector<T>;
   string values;
 
-  // O(n) where n = suff.size()
+  // O(suff.size())
   bool has_suffix(const string &suff) const override {
     if (suff.size() > values.size()) return false;
     return std::equal(suff.rbegin(), suff.rend(), values.rbegin());
   }
-  // O(n) amortized where n = suff.size()
+  // O(suff.size()) amortized
   void append(const string &suff) override {
     values.reserve(values.size() + suff.size());
     std::copy(suff.begin(), suff.end(), std::back_inserter(values));
@@ -47,6 +81,7 @@ template <typename T> struct naive_stack : suffix_stack<std::vector<T>, T> {
   void pop(size_t count) override {
     truncate(count > size() ? 0 : size() - count);
   }
+  // O(1)
   const T &back() const override { return values.back(); }
 
   // O(1)
@@ -122,10 +157,10 @@ struct node : public node_or_leaf {
       std::bidirectional_iterator<iterator>, "must be a bidirectional iterator"
   );
 };
-} // namespace sufftree
+} // namespace suffstack
 
 namespace std {
-using namespace sufftree;
+using namespace suffstack;
 /** hash implementation for nodes, for interning in constant time */
 template <> struct hash<node> {
   size_t operator()(const node &node) const {
@@ -134,7 +169,7 @@ template <> struct hash<node> {
 };
 } // namespace std
 
-namespace sufftree {
+namespace suffstack {
 
 /** an arena for holding interned nodes */
 struct node_arena {
@@ -153,7 +188,9 @@ struct node_arena {
   }
 };
 
-/** a string indexed for use with a suffix tree */
+/** a string indexed for use with a suffix tree, this stores every
+    split of the string, taking up O(N^2) space, and taking O(N^2)
+    time to index */
 struct indexed_string {
   using leaves = std::vector<const leaf_base *>;
   using nodes = std::vector<const node_or_leaf *>;
@@ -178,11 +215,14 @@ struct indexed_string {
   }
 };
 
+/** concept to mark something we can store in the `lhs` and `rhs`
+    fields of `node` directly, we only ever instantiate with `int` */
 template <typename T>
 concept can_hide_in_pointer =
     (std::is_trivial_v<T> && sizeof(T) <= sizeof(void *) &&
      alignof(T) <= alignof(void *));
 
+/** store the value in a pointer */
 template <typename Pointee, typename T>
   requires can_hide_in_pointer<T>
 const Pointee *hide_in_pointer(const T &t) {
@@ -190,6 +230,7 @@ const Pointee *hide_in_pointer(const T &t) {
   std::memcpy(&dst, &t, sizeof(T));
   return dst;
 }
+/** recover the value from a pointer made with `hide_in_pointer` */
 template <typename T, typename Pointee>
   requires can_hide_in_pointer<T>
 const T &find_in_pointer(const Pointee *const &ptr) {
@@ -198,6 +239,9 @@ const T &find_in_pointer(const Pointee *const &ptr) {
   return reinterpret_cast<T const &>(ptr);
 }
 
+/** an indexed string over a specific type, where leaves are stored
+    inline (hidden as pointers) at the ends of trees; this type is
+    only for convenience, and for `tree_stack`'s interface */
 template <typename T>
   requires can_hide_in_pointer<T>
 struct indexed_string_over : indexed_string {
@@ -228,8 +272,8 @@ constexpr size_t compute_association(size_t tree_size, size_t string_size) {
   }
 }
 
-/** a suffix tree, supports O(log n) append, truncate, and suffix comparison */
-struct tree {
+/** type-erased implementation of the tree stack */
+struct tree_stack_base {
   using nodes = indexed_string::nodes;
 
 private:
@@ -239,7 +283,7 @@ private:
   size_t _size = 0;
 
 public:
-  tree(node_arena &arena) : arena(arena) {}
+  tree_stack_base(node_arena &arena) : arena(arena) {}
 
   bool has_suffix(const indexed_string &itree) const;
   void append(const indexed_string &itree);
@@ -253,7 +297,7 @@ public:
   friend struct r_iterator;
   struct r_iterator {
     size_t size, bit;
-    const tree *owner;
+    const tree_stack_base *owner;
     node::iterator nodes;
     bool over;
 
@@ -264,7 +308,7 @@ public:
     using iterator_category = std::input_iterator_tag;
 
     r_iterator() : size(0), bit(0), owner(nullptr) {}
-    r_iterator(const tree *tree, bool reverse = false);
+    r_iterator(const tree_stack_base *tree, bool reverse = false);
 
     r_iterator &operator++();
     r_iterator operator++(int);
@@ -287,27 +331,27 @@ public:
 /** an explicitly typed suffix_stack implementation */
 template <typename T>
   requires can_hide_in_pointer<T>
-struct tree_stack : suffix_stack<indexed_string_over<T>, T>, tree {
-  tree_stack(node_arena &arena) : tree(arena) {}
+struct tree_stack : suffix_stack<indexed_string_over<T>, T>, tree_stack_base {
+  tree_stack(node_arena &arena) : tree_stack_base(arena) {}
 
   // O(log(size()) + log(str.size()))
   bool has_suffix(const indexed_string_over<T> &str) const override {
-    return tree::has_suffix(str);
+    return tree_stack_base::has_suffix(str);
   }
   // O(log(size()) + log(str.size()))
   void append(const indexed_string_over<T> &str) override {
-    return tree::append(str);
+    return tree_stack_base::append(str);
   }
   // O(log(size()))
-  void truncate(size_t size) override { tree::truncate(size); }
+  void truncate(size_t size) override { tree_stack_base::truncate(size); }
   // O(log(size()))
-  void pop(size_t count) override { tree::pop(count); }
+  void pop(size_t count) override { tree_stack_base::pop(count); }
   // O(log(size()))
-  const T &back() const override { return find_in_pointer<T>(tree::back()); }
+  const T &back() const override { return find_in_pointer<T>(tree_stack_base::back()); }
 
   // O(1)
-  size_t size() const override { return tree::size(); }
-  bool empty() const override { return tree::empty(); }
+  size_t size() const override { return tree_stack_base::size(); }
+  bool empty() const override { return tree_stack_base::empty(); }
 
   struct rv_iterator : r_iterator {
     rv_iterator(r_iterator &&r) : r_iterator(std::forward<r_iterator>(r)) {}
@@ -316,8 +360,8 @@ struct tree_stack : suffix_stack<indexed_string_over<T>, T>, tree {
     const T *operator->() { return &**this; }
   };
 
-  rv_iterator rbegin() const { return tree::rbegin(); }
-  rv_iterator rend() const { return tree::rend(); }
+  rv_iterator rbegin() const { return tree_stack_base::rbegin(); }
+  rv_iterator rend() const { return tree_stack_base::rend(); }
 
   operator std::vector<T>() {
     std::vector<T> ret(rbegin(), rend());
@@ -326,4 +370,4 @@ struct tree_stack : suffix_stack<indexed_string_over<T>, T>, tree {
   }
 };
 
-} // namespace sufftree
+} // namespace suffstack

@@ -1,7 +1,7 @@
-#include "sufftree.hpp"
+#include "suffstack.hpp"
 #include <cassert>
 
-namespace sufftree {
+namespace suffstack {
 
 bool node::operator<(const node &o) const {
   std::less<> lt;
@@ -37,7 +37,7 @@ void indexed_string::index_from(node_arena &f, nodes &&paired) {
   }
 }
 
-bool tree::has_suffix(const indexed_string &itree) const {
+bool tree_stack_base::has_suffix(const indexed_string &itree) const {
   if (_size < itree.size()) {
     return false;
   }
@@ -83,7 +83,7 @@ bool tree::has_suffix(const indexed_string &itree) const {
   return true;
 }
 
-void tree::append(const indexed_string &itree) {
+void tree_stack_base::append(const indexed_string &itree) {
   if (itree.empty()) {
     return;
   }
@@ -141,7 +141,7 @@ void tree::append(const indexed_string &itree) {
   _size = new_size;
 }
 
-void tree::truncate(size_t new_size) {
+void tree_stack_base::truncate(size_t new_size) {
   size_t to_remove = _size - new_size;
 
   size_t on_right = compute_association(_size, to_remove);
@@ -182,7 +182,7 @@ void tree::truncate(size_t new_size) {
   trees.resize(std::bit_width(_size));
 }
 
-const node_or_leaf *const &tree::back() const {
+const node_or_leaf *const &tree_stack_base::back() const {
   size_t bit = std::countr_zero(size());
   node_or_leaf const *const *tree = &trees[bit];
   for (; bit; --bit) {
@@ -264,7 +264,7 @@ node::iterator::iterator(size_t bit, const node_or_leaf *root, size_t idx)
   resolve_from(bit);
 }
 
-tree::r_iterator::r_iterator(const tree *tree, bool end)
+tree_stack_base::r_iterator::r_iterator(const tree_stack_base *tree, bool end)
     : size(tree->size()), owner(tree) {
   if (size == 0) {
     bit = 0;
@@ -279,7 +279,7 @@ tree::r_iterator::r_iterator(const tree *tree, bool end)
   }
 }
 
-tree::r_iterator &tree::r_iterator::operator++() {
+tree_stack_base::r_iterator &tree_stack_base::r_iterator::operator++() {
   --nodes;
   if (!nodes.over) {
     return *this;
@@ -293,16 +293,16 @@ tree::r_iterator &tree::r_iterator::operator++() {
   nodes = {bit, owner->trees[bit], the_bit(bit) - 1};
   return *this;
 }
-tree::r_iterator tree::r_iterator::operator++(int) {
+tree_stack_base::r_iterator tree_stack_base::r_iterator::operator++(int) {
   r_iterator cp = *this;
   ++cp;
   return cp;
 }
-bool tree::r_iterator::operator==(const r_iterator &o) const {
+bool tree_stack_base::r_iterator::operator==(const r_iterator &o) const {
   return bit == o.bit && over == o.over && nodes == o.nodes;
 }
-bool tree::r_iterator::operator!=(const r_iterator &o) const {
+bool tree_stack_base::r_iterator::operator!=(const r_iterator &o) const {
   return !(*this == o);
 }
 
-} // namespace sufftree
+} // namespace suffstack

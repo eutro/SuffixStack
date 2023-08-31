@@ -1,4 +1,4 @@
-#include "sufftree.hpp"
+#include "suffstack.hpp"
 
 #include <chrono>
 #include <iostream>
@@ -11,11 +11,54 @@
 #endif
 #include <cassert>
 
-using namespace sufftree;
+/**
+ * Benchmarks and tests for the suffix stack implementation.
+ *
+ * Tip: on Linux, use `column -t -R 1,2` to view the output table
+ */
+using namespace suffstack;
 
-static void escape(void *p) { asm volatile("" : : "g"(p) : "memory"); }
+struct config {
+  /** don't log integer configurations as they are parsed */
+  bool no_log_config = std::getenv("NO_LOG_CONFIG");
+  /** print each operation performed */
+  bool print_ops = std::getenv("PRINT_OPS");
+  /** print the vectors at each step */
+  bool print_vecs = std::getenv("PRINT_VECS");
+  /** the maximum number of elements to push */
+  unsigned long max_push = integer("MAX_PUSH", 1024);
+  /** pop operations divide a random number [0, stack.size()) by this
+      to get the count to pop */
+  unsigned long pop_ratio = integer("POP_RATIO", 2);
+  /** number of random tests to run */
+  unsigned long random_count = integer("RANDOM_COUNT", 1 << 10);
+  /** seed for the random number generator */
+  unsigned long seed = integer("RANDOM_SEED", 0);
 
-static void clobber() { asm volatile("" ::: "memory"); }
+  unsigned long integer(const char *env, unsigned long dflt) {
+    char *value = std::getenv(env);
+    if (!value) return dflt;
+    unsigned long i = std::stoul(value);
+    if (!no_log_config) {
+      std::cout << env << "=" << i << "\n";
+    }
+    return i;
+  }
+};
+
+static config cfg;
+
+static void escape(void *p) {
+#if defined __GNUC__
+  asm volatile("" : : "g"(p) : "memory");
+#endif
+}
+
+static void clobber() {
+#if defined __GNUC__
+  asm volatile("" ::: "memory");
+#endif
+}
 
 struct cumulative_timer {
   using clock_t = std::chrono::steady_clock;
@@ -55,7 +98,7 @@ struct cumulative_timer {
   operator<<(std::ostream &os, const cumulative_timer &tm) {
     for (const auto &e : tm.totals) {
       os << "\n"
-         << e.first << "," << e.second.duration << "," << e.second.count;
+         << e.first << "    " << e.second.duration << "    " << e.second.count;
     }
     return os;
   }
@@ -88,7 +131,7 @@ template <typename Stack, typename... PrefixArgs> struct tester {
 
   void run() { call_helper(&tester::run_with); }
 
-  void randomised(unsigned seed, unsigned op_count) {
+  void randomised(unsigned long seed, unsigned long op_count) {
     call_helper(&tester::randomised_with, seed, op_count);
   }
 
@@ -173,7 +216,7 @@ template <typename Stack, typename... PrefixArgs> struct tester {
     trunc_to_nineteen(args..., stk);
   }
 
-  [[gnu::noinline]] void trunc_to_nineteen(PrefixArgs &...args, stack &stk) {
+  void trunc_to_nineteen(PrefixArgs &...args, stack &stk) {
     string nineteen(
         args...,
         {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19}
@@ -185,45 +228,46 @@ template <typename Stack, typename... PrefixArgs> struct tester {
     assert(stk.has_suffix(nineteen));
   }
 
-  void randomised_with(unsigned seed, unsigned op_count, PrefixArgs &...args) {
-    bool print_ops = std::getenv("PRINT_OPS");
-    bool print_vecs = std::getenv("PRINT_VECS");
+  void randomised_with(unsigned long seed, unsigned long op_count, PrefixArgs &...args) {
     std::mt19937 rng(seed);
+    auto rand_int = [&](unsigned i) {
+      return std::uniform_int_distribution<unsigned>(0, i)(rng);
+    };
 
     cumulative_timer baseline_clk, impl_clk;
     constexpr const char *tag_trunc = "trunc", *tag_check = "check",
                          *tag_append = "append";
 
-    constexpr size_t max_push = 4096;
+    double total_height = 0;
 
     naive_stack<int> baseline;
     stack stk(args...);
     for (unsigned idx = 0; idx < op_count; ++idx) {
-      unsigned op = rng() % 3;
+      unsigned op = rand_int(3);
 
       switch (op) {
       case 0: {
         if (baseline.size() != 0) {
-          size_t count = baseline.size() - (rng() % baseline.size() / 2);
-          if (print_ops) {
-            std::cout << "Truncating p=" << count << "\n";
+          size_t count = rand_int(baseline.size()) / cfg.pop_ratio;
+          if (cfg.print_ops) {
+            std::cout << "Popping p=" << count << "\n";
           }
-          baseline_clk.time(tag_trunc, [&]() { baseline.truncate(count); });
-          impl_clk.time(tag_trunc, [&]() { stk.truncate(count); });
+          baseline_clk.time(tag_trunc, [&]() { baseline.pop(count); });
+          impl_clk.time(tag_trunc, [&]() { stk.pop(count); });
           break;
         }
       }
         // fall through
       case 2: {
         if (baseline.size() != 0) {
-          size_t count = rng() % baseline.size();
+          size_t count = rand_int(baseline.size());
           std::vector<int> to_check(
               baseline.values.end() - count, baseline.values.end()
           );
           assert(to_check.size() == count);
-          if (print_ops) {
+          if (cfg.print_ops) {
             std::cout << "Checking suffix p=" << count << "\n";
-            if (print_vecs) {
+            if (cfg.print_vecs) {
               std::cout << " v = ";
               print_vector(std::cout, to_check);
             }
@@ -239,7 +283,7 @@ template <typename Stack, typename... PrefixArgs> struct tester {
           });
           if (!correct) {
             std::cout << "Failed, incorrect suffix\n";
-            if (print_vecs) {
+            if (cfg.print_vecs) {
               std::cout << " Expected: ";
               print_vector(std::cout, baseline.values);
               std::cout << "   Actual: ";
@@ -252,14 +296,14 @@ template <typename Stack, typename... PrefixArgs> struct tester {
       }
         // fall through
       case 1: {
-        size_t count = rng() % max_push;
-        if (print_ops) {
+        size_t count = rand_int(cfg.max_push);
+        if (cfg.print_ops) {
           std::cout << "Appending p=" << count << "\n";
         }
         std::vector<int> to_push;
         to_push.reserve(count);
         for (size_t i = 0; i < count; ++i) {
-          to_push.push_back((int)(rng() % 128));
+          to_push.push_back((int)rand_int(128));
         }
         string indexed(args..., to_push);
         baseline_clk.time(tag_append, [&]() { baseline.append(to_push); });
@@ -268,32 +312,32 @@ template <typename Stack, typename... PrefixArgs> struct tester {
       }
       }
 
-      if (print_ops) {
+      if (cfg.print_ops) {
         std::cout << "Checking length n=" << baseline.size() << "\n";
       }
       assert(baseline.size() == stk.size());
-      if (print_vecs) {
+      if (cfg.print_vecs) {
         std::cout << " Expected: ";
         print_vector(std::cout, baseline.values);
         std::cout << "   Actual: ";
         print_vector<int>(std::cout, stk);
       }
+
+      total_height += baseline.size();
     }
 
-    std::cout << "Baseline" << baseline_clk << "\n";
-    std::cout << "Benchmarked" << impl_clk << "\n\n";
+    std::cout << "Average-height: " << total_height / op_count << "\n";
+    std::cout << "Baseline:" << baseline_clk << "\n";
+    std::cout << "Benchmarked:" << impl_clk << "\n\n";
   }
 };
 
 int main() {
-  constexpr size_t random_count = 1 << 12;
-
   tester<naive_stack<int>> naive_stack_test;
   naive_stack_test.run();
-  // naive_stack_test.randomised(0, random_count);
 
   node_arena arena;
   tester<tree_stack<int>, node_arena> tree_stack_test(arena);
   tree_stack_test.run();
-  tree_stack_test.randomised(0, random_count);
+  tree_stack_test.randomised(cfg.seed, cfg.random_count);
 }
