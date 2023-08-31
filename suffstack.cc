@@ -14,9 +14,14 @@ void indexed_string::index_from(node_arena &f, nodes &&paired) {
   assocs.resize(paired.size() + 1);
   if (paired.size() == 0) return;
 
-  for (size_t bit = 0;; ++bit) {
+  for (size_t bit = 0;; ++bit)
+  /* O(log N) iterations */ {
     size_t bit_m = the_bit(bit);
-    for (size_t sz = bit_m; sz <= size(); ++sz) {
+    for (size_t sz = bit_m; sz <= size(); ++sz)
+    /* O(\sum_{i=0}^(log N) N - log i)
+       = O(N log N) iterations total */
+    {
+      // constant work in body
       bool set = sz & bit_m;
       auto &left = assocs.begin()[sz].left, &right = assocs.rbegin()[sz].right;
       if (set) {
@@ -29,8 +34,12 @@ void indexed_string::index_from(node_arena &f, nodes &&paired) {
       }
     }
     if (the_bit(bit + 1) > size()) break;
-    size_t pairings = paired.size() - bit_m;
-    for (size_t i = 0; i < pairings; ++i) {
+    size_t pairings = paired.size() - bit_m /* = O(N - log i) */;
+    for (size_t i = 0; i < pairings; ++i)
+    /* O(\sum_{i=0}^(log N) N - log i)
+       = O(N log N) iterations total */
+    {
+      // constant work (and allocation)
       paired[i] = f.intern(paired[i], paired[i + bit_m]);
     }
     paired.resize(pairings);

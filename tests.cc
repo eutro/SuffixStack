@@ -14,7 +14,7 @@
 /**
  * Benchmarks and tests for the suffix stack implementation.
  *
- * Tip: on Linux, use `column -t -R 1,2` to view the output table
+ * Tip: on Linux, use `column -s=$'\t' -t -R 1,2` to view the output table
  */
 using namespace suffstack;
 
@@ -51,6 +51,8 @@ static config cfg;
 static void escape(void *p) {
 #if defined __GNUC__
   asm volatile("" : : "g"(p) : "memory");
+#else
+  (void)p;
 #endif
 }
 
@@ -96,9 +98,10 @@ struct cumulative_timer {
 
   friend std::ostream &
   operator<<(std::ostream &os, const cumulative_timer &tm) {
+    os << "\nOperation\tTime\tCount";
     for (const auto &e : tm.totals) {
       os << "\n"
-         << e.first << "    " << e.second.duration << "    " << e.second.count;
+         << e.first << "\t" << e.second.duration << "\t" << e.second.count;
     }
     return os;
   }
@@ -229,7 +232,9 @@ template <typename Stack, typename... PrefixArgs> struct tester {
   }
 
   void randomised_with(
-      unsigned long seed, unsigned long op_count, PrefixArgs &...args
+      unsigned long seed,
+      unsigned long op_count,
+      PrefixArgs &...args
   ) {
     std::mt19937 rng(seed);
     auto rand_int = [&](unsigned i) {
@@ -237,8 +242,8 @@ template <typename Stack, typename... PrefixArgs> struct tester {
     };
 
     cumulative_timer baseline_clk, impl_clk;
-    constexpr const char *tag_trunc = "trunc", *tag_check = "check",
-                         *tag_append = "append";
+    constexpr const char *tag_trunc = "truncate", *tag_check = "has_suffix",
+                         *tag_append = "append", *tag_index = "index";
 
     double total_height = 0;
 
@@ -275,7 +280,9 @@ template <typename Stack, typename... PrefixArgs> struct tester {
             }
           }
 
-          string indexed(args..., to_check);
+          string indexed = impl_clk.time(tag_index, [&]() {
+            return string(args..., to_check);
+          });
           bool base_correct = baseline_clk.time(tag_check, [&]() {
             return baseline.has_suffix(to_check);
           });
@@ -307,7 +314,9 @@ template <typename Stack, typename... PrefixArgs> struct tester {
         for (size_t i = 0; i < count; ++i) {
           to_push.push_back((int)rand_int(128));
         }
-        string indexed(args..., to_push);
+        string indexed = impl_clk.time(tag_index, [&]() {
+          return string(args..., to_push);
+        });
         baseline_clk.time(tag_append, [&]() { baseline.append(to_push); });
         impl_clk.time(tag_append, [&]() { stk.append(indexed); });
         break;
@@ -328,9 +337,12 @@ template <typename Stack, typename... PrefixArgs> struct tester {
       total_height += baseline.size();
     }
 
-    std::cout << "Average-height: " << total_height / op_count << "\n";
-    std::cout << "Baseline:" << baseline_clk << "\n";
-    std::cout << "Benchmarked:" << impl_clk << "\n\n";
+    std::cout << "=========\t=========\t======\n";
+    std::cout << "Average height:\t" << total_height / op_count << "\n";
+    std::cout << "=========\t=========\t======\n";
+    std::cout << "Baseline:\n---" << baseline_clk << "\n";
+    std::cout << "=========\t=========\t======\n";
+    std::cout << "Benchmarked:\n---" << impl_clk << "\n\n";
   }
 };
 

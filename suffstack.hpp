@@ -40,8 +40,8 @@
  *
  * All non-trivial operations (see below) on the stack end up being
  * logarithmic time in the size of the stack and, where present, the
- * string. Indexing strings for `append` and `truncate` is quadratic
- * time and space.
+ * string. Indexing strings for `append` and `truncate` is
+ * pseudo-linear (O(N log N)) time and space.
  */
 namespace suffstack {
 
@@ -154,7 +154,8 @@ struct node : public node_or_leaf {
     const value_type *operator->() const { return &**this; }
   };
   static_assert(
-      std::bidirectional_iterator<iterator>, "must be a bidirectional iterator"
+      std::bidirectional_iterator<iterator>,
+      "must be a bidirectional iterator"
   );
 };
 } // namespace suffstack
@@ -189,8 +190,8 @@ struct node_arena {
 };
 
 /** a string indexed for use with a suffix tree, this stores every
-    split of the string, taking up O(N^2) space, and taking O(N^2)
-    time to index */
+    split of the string, taking up O(N log N) space, and taking O(N
+    log N) time to index */
 struct indexed_string {
   using leaves = std::vector<const leaf_base *>;
   using nodes = std::vector<const node_or_leaf *>;
@@ -263,7 +264,6 @@ struct indexed_string_over : indexed_string {
     its bits with `tree_size`. */
 constexpr size_t compute_association(size_t tree_size, size_t string_size) {
   size_t mask = the_bit(std::bit_width(string_size)) - 1;
-  ;
   size_t masked_size = tree_size & mask;
   if (masked_size <= string_size) {
     return masked_size;

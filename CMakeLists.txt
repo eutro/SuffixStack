@@ -14,7 +14,6 @@ target_link_libraries(tests suffix_stack)
 
 set_target_properties(suffix_stack tests PROPERTIES
   CXX_STANDARD 20
-  COMPILE_WARNING_AS_ERROR ON
 )
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
