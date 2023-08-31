@@ -18,7 +18,8 @@ void indexed_string::index_from(node_arena &f, nodes &&paired) {
   /* O(log N) iterations */ {
     size_t bit_m = the_bit(bit);
     for (size_t sz = bit_m; sz <= size(); ++sz)
-    /* O(\sum_{i=0}^(log N) N - log i)
+    /* O(\sum_{r=1}^(log N) N - e^r)
+       = O(N log N - N)
        = O(N log N) iterations total */
     {
       // constant work in body
@@ -34,9 +35,9 @@ void indexed_string::index_from(node_arena &f, nodes &&paired) {
       }
     }
     if (the_bit(bit + 1) > size()) break;
-    size_t pairings = paired.size() - bit_m /* = O(N - log i) */;
+    size_t pairings = paired.size() - bit_m /* = O(N - e^r) */;
     for (size_t i = 0; i < pairings; ++i)
-    /* O(\sum_{i=0}^(log N) N - log i)
+    /* O(\sum_{r=1}^(log N) N - e^r)
        = O(N log N) iterations total */
     {
       // constant work (and allocation)
@@ -72,10 +73,12 @@ bool tree_stack_base::has_suffix(const indexed_string &itree) const {
   size_t borrowed_bit = std::countr_zero(_size - on_right);
   const node_or_leaf *borrowed = trees[borrowed_bit];
   size_t left_bit = split.left.size();
+  // O(log(size()))
   while (borrowed_bit > left_bit) {
     borrowed = static_cast<const node *>(borrowed)->rhs;
     --borrowed_bit;
   }
+  // O(log(on_left))
   for (; left_bit; --left_bit) {
     const node_or_leaf *left_tree = split.left[left_bit - 1];
     const node *our_tree = static_cast<const node *>(borrowed);
@@ -98,10 +101,12 @@ void tree_stack_base::append(const indexed_string &itree) {
   }
 
   size_t new_size = _size + itree.size();
-  size_t on_right = compute_association(new_size, itree.size());
+  size_t on_right = compute_association(new_size, itree.size()); // O(1)
   size_t on_left = itree.size() - on_right;
-  const indexed_string::split &split = itree.association(on_right);
+  const indexed_string::split &split = itree.association(on_right); // O(1)
 
+  // O(log(size() + itree.size()) - log(size()))
+  // = O(log(itree.size()/size()))
   trees.resize(std::bit_width(new_size), nullptr);
 
   if (on_left) {
@@ -113,6 +118,7 @@ void tree_stack_base::append(const indexed_string &itree) {
     // 1 << bit_no is the size of `constructing` at the start of the
     // loop
     trees[bit_no] = nullptr;
+    // O(log(itree.size()))
     for (; the_bit(bit_no) <= on_left; ++bit_no) {
       bool supplied = on_left & the_bit(bit_no);
       if (supplied) {
@@ -123,6 +129,8 @@ void tree_stack_base::append(const indexed_string &itree) {
         tr = nullptr;
       }
     }
+    // O(log(size()) - log(itree.size()))
+    // = O(log(size()/itree.size()))
     while (true) {
       const node_or_leaf *&lhs = trees[bit_no];
       if (!lhs) break;
@@ -136,6 +144,8 @@ void tree_stack_base::append(const indexed_string &itree) {
   size_t remaining_right = on_right;
   auto src_iter = split.right.begin();
   auto dst_iter = trees.begin();
+  // O(log(on_right))
+  // could use std::copy instead?
   while (remaining_right) {
     size_t step = std::countr_zero(remaining_right);
     src_iter += step;
@@ -158,6 +168,8 @@ void tree_stack_base::truncate(size_t new_size) {
 
   auto my_iter = trees.begin();
   size_t right_iter = on_right;
+  // O(log(on_right))
+  // could use std::fill instead?
   while (right_iter) {
     unsigned step = std::countr_zero(right_iter);
     my_iter += step;
@@ -175,6 +187,7 @@ void tree_stack_base::truncate(size_t new_size) {
     trees[to_deconstruct] = nullptr;
     size_t bit_no = to_deconstruct - 1;
     size_t bit = the_bit(bit_no);
+    // O(log(bit_no))
     for (; bit; --bit_no, bit >>= 1) {
       bool keeping = to_remain & bit;
       const node *branch = static_cast<const node *>(splitting);
@@ -194,6 +207,7 @@ void tree_stack_base::truncate(size_t new_size) {
 const node_or_leaf *const &tree_stack_base::back() const {
   size_t bit = std::countr_zero(size());
   node_or_leaf const *const *tree = &trees[bit];
+  // O(log(size())) worst case
   for (; bit; --bit) {
     tree = &static_cast<const node *>(*tree)->rhs;
   }
